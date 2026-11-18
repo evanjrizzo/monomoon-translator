@@ -164,7 +164,33 @@ def test_simple_interface_and_advanced_tooltips():
     assert w.auto_button.isVisible() and not w.auto_button.isEnabled()
     assert all(button.toolTip().strip() for button in w.findChildren(QPushButton))
     QTest.mouseClick(w.advanced_toggle,Qt.MouseButton.LeftButton);app.processEvents()
-    assert w.advanced_panel.isVisible() and w.threshold.isVisible()
+    assert w.advanced_panel.isVisible() and w.letter.isVisible()
+    w.advanced_tabs.setCurrentIndex(1);app.processEvents()
+    assert w.threshold.isVisible()
     QTest.mouseClick(w.advanced_toggle,Qt.MouseButton.LeftButton);app.processEvents()
     assert not w.advanced_panel.isVisible()
     w.close()
+
+
+def test_teach_numbers_punctuation_save_load_and_validation(tmp_path,monkeypatch):
+    import numpy as np
+    from PySide6.QtWidgets import QFileDialog
+    from ocr import Profile,Matcher
+    app=QApplication.instance() or QApplication([])
+    w=Window();w.show();w.advanced_toggle.setChecked(True);app.processEvents()
+    assert w.advanced_tabs.tabText(0)=='Alphabet teaching'
+    w.profile=Profile('Public profile');errors=[];w.error=errors.append
+    image=np.full((15,15,3),255,np.uint8);image[3:12,5:9]=0
+    w.set_source_image(image,'Test glyph');w.selection=(1,1,13,13)
+    w.symbol_group.setCurrentIndex(1);w.letter.setCurrentText('7');w.teach()
+    assert '7' in w.profile.samples
+    w.symbol_group.setCurrentIndex(2);w.letter.setCurrentText('?');w.teach()
+    assert '?' in w.profile.samples and not errors
+    path=tmp_path/'symbols.json'
+    monkeypatch.setattr(QFileDialog,'getSaveFileName',lambda *args,**kwargs:(str(path),'Alphabet (*.json)'))
+    assert w.save_profile()
+    w.profile=Profile();monkeypatch.setattr(QFileDialog,'getOpenFileName',lambda *args,**kwargs:(str(path),'Alphabet (*.json)'))
+    w.load_profile();assert set(w.profile.samples)=={'7','?'}
+    w.letter.setCurrentText('two');w.teach();assert errors and set(w.profile.samples)=={'7','?'}
+    w.letter.setCurrentText('?');w.remove_sample();assert '?' not in w.profile.samples
+    w.dirty=False;w.close()

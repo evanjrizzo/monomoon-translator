@@ -1,4 +1,21 @@
-# Monomoon Translator 1.0.0 validation
+# Monomoon Translator 1.1.0 validation
+
+Built on 2026-11-18 with Python 3.12, NumPy 1.26.4, OpenCV 4.11.0.86, and PySide6 Essentials / Shiboken 6.8.3.
+
+- 32 local source regression tests passed, including all previous screenshot cases.
+- Added checks for all selectable character labels, rejecting invalid labels, mixed letters/numbers/punctuation, disconnected standalone punctuation, accepted question-mark confidence and annotation, number-only profiles, legacy profile loading, and version 2 profile round trips.
+- GUI checks exercise the Alphabet teaching tab, number/punctuation selection, teaching from a selected crop, saving/loading, invalid input, and sample removal. Advanced remains hidden at startup; buttons retain hover hints.
+- Number and punctuation recognition is tested using synthetic glyph samples. The included game key still contains only verified A–Z mappings.
+- The portable self-check additionally exercises teaching 7, ?, :, and =, version 2 profile saving/loading, and recognition, alongside GUI, clipboard, Unicode paths, and three real screenshot checks. Its JSON report records the application version and platform.
+- Source tests run on Windows and Ubuntu 24.04 in GitHub Actions. The manually dispatched workflow verifies the selected release ZIP checksum and runs its actual Windows launcher and embedded runtime outside the app's working directory, in a path with spaces and an accented character.
+- Linux x64 targets Ubuntu/Pop!_OS 24.04 and compatible systems with glibc 2.39 or newer. Normal desktop graphics libraries are required; libxcb-cursor is included in the distributed build.
+- No physical Windows 10/11 desktop test is claimed. Windows hosted checks use Windows Server 2025.
+- OCR remains heuristic. The shaded moon-board label remains CRIMS??; other small diagram markings are unverified.
+
+The source and portable checks do not guarantee a correct reading for every screenshot. Use the bundled runtime check to inspect the current installation. Historical 1.0.0 reports below refer only to that release; they are not evidence for a later build.
+
+## Historical 1.0.0 validation
+
 
 Built on 2026-11-18.
 

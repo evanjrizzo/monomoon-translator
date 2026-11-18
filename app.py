@@ -9,9 +9,9 @@ from PySide6.QtGui import QImage, QPixmap, QPen, QColor, QAction, QKeySequence, 
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,
     QFormLayout,QScrollArea,QSplitter,QGraphicsView,QGraphicsScene,QFileDialog,QMessageBox,
     QPushButton,QComboBox,QSpinBox,QDoubleSpinBox,QCheckBox,QPlainTextEdit,QLabel,
-    QTableWidget,QTableWidgetItem,QInputDialog,QAbstractItemView,QToolButton)
+    QTableWidget,QTableWidgetItem,QInputDialog,QAbstractItemView,QToolButton,QTabWidget)
 from paths import resource, data_folder, profile_suggestion
-from ocr import Profile, read_image, preprocess, recognize, annotate, auto_recognize
+from ocr import Profile, read_image, preprocess, recognize, annotate, auto_recognize, TEACHING_SYMBOLS
 
 
 class ImageView(QGraphicsView):
@@ -112,16 +112,30 @@ class Window(QMainWindow):
         self.region_label=QLabel('Paste or open a screenshot, then click Read screenshot. Drag around words to limit the search.')
         self.region_label.setWordWrap(True);layout.addWidget(self.region_label)
         split=QSplitter();layout.addWidget(split,1)
-        controls=QWidget();form=QFormLayout(controls)
-        self.advanced_panel=QScrollArea();self.advanced_panel.setWidgetResizable(True);self.advanced_panel.setWidget(controls)
-        self.advanced_panel.setMinimumWidth(310);self.advanced_panel.setMaximumWidth(360);split.addWidget(self.advanced_panel)
-        self.profile_label=QLabel();self.profile_label.setWordWrap(True);form.addRow('Alphabet',self.profile_label)
+        self.advanced_panel=QWidget();advanced_layout=QVBoxLayout(self.advanced_panel);advanced_layout.setContentsMargins(0,0,0,0)
+        self.advanced_tabs=QTabWidget();advanced_layout.addWidget(self.advanced_tabs)
+        self.advanced_panel.setMinimumWidth(400);self.advanced_panel.setMaximumWidth(440);split.addWidget(self.advanced_panel)
+        def advanced_tab(title):
+            controls=QWidget();form=QFormLayout(controls)
+            scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(controls)
+            self.advanced_tabs.addTab(scroll,title)
+            return form
+        self.alphabet_form=advanced_tab('Alphabet teaching')
+        self.image_form=advanced_tab('Image settings')
+        self.matches_form=advanced_tab('Matches')
+        about_form=advanced_tab('About')
+        about=QPlainTextEdit();about.setReadOnly(True);about.setMinimumHeight(410)
+        about.setPlainText('Monomoon Translator '+resource('VERSION').read_text().strip()+'\n\nUnofficial community tool for fictional-alphabet OCR. Not affiliated with or endorsed by the game developers.\n\nAI disclosure: developed with substantial assistance from OpenAI Codex for code, documentation, packaging, and automated tests. Recognition uses local OpenCV template matching, not an online AI service.\n\nImages, profiles, and decoded text stay on your computer. No telemetry, account, or API key is used. App data defaults to the data folder beside the app.\n\nThe included key contains A–Z only. Teach numbers and punctuation from a known key before reading them. Review uncertain results before sharing.\n\nApplication code: MIT license. Game images and third-party libraries keep their own rights and licenses.\n\nDownloads, instructions, and issue reports:\nhttps://github.com/evanjrizzo/monomoon-translator')
+        about.setToolTip('Version, AI-use disclosure, privacy, licensing, and project information.');about_form.addRow(about)
+        form=self.alphabet_form
+        self.profile_label=QLabel();self.profile_label.setTextFormat(Qt.TextFormat.PlainText);self.profile_label.setWordWrap(True);form.addRow('Alphabet',self.profile_label)
         for title,callback,hint in [
             ('Load included demo',self.demo,'Open the included inscription with its trained alphabet and example settings. This replaces the source image.'),
             ('Use game alphabet',self.use_starter_profile,'Restore the included A–Z game alphabet while keeping the current source image.'),
             ('New alphabet',self.new_profile,'Start an empty alphabet to teach symbols for a different fictional writing system.'),
             ('Load alphabet',self.load_profile,'Open a saved alphabet JSON file. This changes the letter templates, not the screenshot.'),
             ('Save alphabet',self.save_profile,'Save all taught letters and samples. The default folder travels with this app.')]:form.addRow(button(title,callback,hint))
+        form=self.image_form
         self.manual_settings=QCheckBox('Use manual image settings');self.manual_settings.setToolTip('Normally the app finds the best settings automatically. Check this to use the image controls below for the next read.');form.addRow(self.manual_settings)
         self.threshold=QSpinBox();self.threshold.setRange(-1,255);self.threshold.setValue(-1);self.threshold.setSpecialValueText('Automatic')
         self.polarity=QComboBox();self.polarity.addItems(['dark','light','range','local light','local dark'])
@@ -150,12 +164,20 @@ class Window(QMainWindow):
         self.touching=QCheckBox('Split touching letters');self.touching.setChecked(True);self.touching.setToolTip('Try splitting unusually wide symbols when the separate pieces match taught letters better.');form.addRow(self.touching)
         form.addRow(button('Preview image settings',self.preview,'Show the current foreground mask. White pixels are the shapes the matcher sees. This does not decode text.'))
         form.addRow(button('Use selection as text area',self.set_roi,'Keep the drawn source rectangle as the text area. Read also uses a new selection automatically.'))
-        self.letter=QComboBox();self.letter.addItems(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'));self.letter.setToolTip('Choose the Latin letter represented by your selected fictional glyph.');form.addRow('Teach as',self.letter)
-        form.addRow(button('Teach selected glyph',self.teach,'Select ONE glyph in Source, choose its Latin letter, then add it as a template using the current image settings.'))
-        form.addRow(button('Import cropped glyph',self.import_glyph,'Choose a file containing one cropped fictional glyph and add it under the chosen letter.'))
-        form.addRow(button('Remove last sample',self.remove_sample,'Remove the most recently taught sample for the letter selected in Teach as.'))
-        self.samples_label=QLabel();self.samples_label.setWordWrap(True);form.addRow(self.samples_label)
-        form.addRow(QLabel('Match details: click a row to highlight its letter.'))
+        form=self.alphabet_form
+        help_text=QLabel('Select one glyph in Source, then choose the letter, number, or punctuation it represents. Save your alphabet to keep new samples.');help_text.setWordWrap(True);form.addRow(help_text)
+        self.symbol_group=QComboBox();self.symbol_group.addItems(['Letters A–Z','Numbers 0–9','Punctuation / symbols'])
+        self.symbol_group.setToolTip('Choose which kind of character to teach. This does not remove existing samples.')
+        form.addRow('Character type',self.symbol_group)
+        self.letter=QComboBox();self.letter.setEditable(True);self.letter.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.letter.setToolTip('Choose one character or type a single punctuation/symbol character, including Unicode punctuation. Spaces and multi-character labels are not supported.')
+        self.symbol_group.currentIndexChanged.connect(self.teaching_group_changed);self.teaching_group_changed(0);form.addRow('Teach as',self.letter)
+        form.addRow(button('Teach selected glyph',self.teach,'Select ONE glyph in Source, choose its character, then add it as a template using the current image settings.'))
+        form.addRow(button('Import cropped glyph',self.import_glyph,'Choose a file containing one cropped fictional glyph and add it under the chosen character.'))
+        form.addRow(button('Remove last sample',self.remove_sample,'Remove the most recently taught sample for the character selected in Teach as.'))
+        self.samples_label=QLabel();self.samples_label.setTextFormat(Qt.TextFormat.PlainText);self.samples_label.setWordWrap(True);form.addRow(self.samples_label)
+        form=self.matches_form
+        form.addRow(QLabel('Match details: click a row to highlight its symbol.'))
         self.table=QTableWidget(0,4);self.table.setMinimumHeight(200);self.table.setHorizontalHeaderLabels(['Line','Read','Score','Alternatives'])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers);self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows);self.table.cellClicked.connect(self.highlight)
         self.table.setToolTip('Inspect match confidence and alternatives. Click a row to highlight the corresponding symbol in the preview.');form.addRow(self.table)
@@ -171,14 +193,19 @@ class Window(QMainWindow):
             panel=QWidget();vl=QVBoxLayout(panel);vl.setContentsMargins(0,0,0,0);vl.addWidget(QLabel(title));vl.addWidget(view);views.addWidget(panel)
         text_panel=QWidget();text_layout=QVBoxLayout(text_panel);text_layout.setContentsMargins(0,0,0,0)
         text_layout.addWidget(QLabel('Translation: click below to edit or add spaces'))
-        self.text=QPlainTextEdit();self.text.setPlaceholderText('Your translation will appear here. Uncertain letters are shown as ?.');self.text.setToolTip('Edit the recognized text, add spaces, or correct letters. Text edits do not retrain the alphabet.')
+        self.text=QPlainTextEdit();self.text.setPlaceholderText('Your translation will appear here. Orange boxes and ? mark uncertain symbols.');self.text.setToolTip('Edit the recognized text, add spaces, or correct letters. Text edits do not retrain the alphabet.')
         text_layout.addWidget(self.text);right.addWidget(text_panel)
-        self.source.selected.connect(self.select);right.setSizes([520,180]);split.setSizes([330,1200])
+        self.source.selected.connect(self.select);right.setSizes([520,180]);split.setSizes([400,1200])
         export=QHBoxLayout();layout.addLayout(export)
         export.addWidget(button('Copy text',lambda:QApplication.clipboard().setText(self.text.toPlainText()),'Copy the edited translation to the clipboard so you can paste it into a message or document.'))
         export.addWidget(button('Save text',self.export_text,'Save the edited translation as a UTF-8 text file. The default exports folder is inside this app.'))
         export.addWidget(button('Save marked image',self.export_image,'Save the recognition preview with its letter boxes as a PNG image.'))
         export.addStretch();self.advanced_panel.hide();self.refresh_profile();self.source.setFocus()
+    def teaching_group_changed(self,index):
+        previous=self.letter.currentText()
+        symbols=(TEACHING_SYMBOLS[:26],TEACHING_SYMBOLS[26:36],TEACHING_SYMBOLS[36:])[index]
+        self.letter.clear();self.letter.addItems(list(symbols))
+        if previous in symbols:self.letter.setCurrentText(previous)
     def toggle_advanced(self,checked):
         self.advanced_panel.setVisible(checked)
         self.advanced_toggle.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
@@ -342,7 +369,7 @@ class Window(QMainWindow):
             if 'range_high' in settings:self.range_high.setValue(settings['range_high'])
             if 'local_window' in settings:self.local_window.setValue(settings['local_window'])
             if 'threshold' in settings:self.threshold.setValue(settings['threshold'])
-            self.area.setValue(2)
+            self.area.setValue(settings.get('min_area',2))
             self.line_gap.setValue(2)
             self.char_gap.setValue(0)
         self.result_image=annotate(self.job_source if self.job_source is not None else mask,self.glyphs)
@@ -352,7 +379,7 @@ class Window(QMainWindow):
             for col,value in enumerate([str(g.line+1),g.letter,f'{g.confidence:.0%}',' / '.join(f'{k} {v:.0%}' for k,v in g.alternatives)]):self.table.setItem(row,col,QTableWidgetItem(value))
         self.table.resizeColumnsToContents()
         blocks=f'{self.last_region_count} text blocks; ' if self.last_region_count else ''
-        self.statusBar().showMessage(f'{blocks}{len(self.glyphs)} glyphs; {sum(g.letter=="?" for g in self.glyphs)} uncertain. Text is editable.')
+        self.statusBar().showMessage(f'{blocks}{len(self.glyphs)} glyphs; {sum(not g.accepted for g in self.glyphs)} uncertain. Text is editable.')
     def highlight(self,row,column):
         if row>=len(self.glyphs):return
         x,y,w,h=self.glyphs[row].box

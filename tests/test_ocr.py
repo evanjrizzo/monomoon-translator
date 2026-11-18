@@ -47,9 +47,12 @@ def test_blank_and_missing_profile():
     assert recognize(np.zeros((20,30),np.uint8),p)[0]==''
     with pytest.raises(ValueError):p.add('A',np.zeros((4,4),np.uint8))
     with pytest.raises(ValueError):recognize(np.ones((4,4),np.uint8),Profile())
+    empty=Profile()
+    with pytest.raises(ValueError):empty.add('7',np.zeros((4,4),np.uint8))
+    assert empty.samples=={}
 
 def test_invalid_profile(tmp_path):
-    path=tmp_path/'bad.json';path.write_text('{"version":2}')
+    path=tmp_path/'bad.json';path.write_text('{"version":99}')
     with pytest.raises(ValueError):Profile.load(path)
 
 def test_unknown_ambiguity():

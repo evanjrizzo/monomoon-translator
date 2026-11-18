@@ -2,8 +2,18 @@
 from dataclasses import dataclass
 from pathlib import Path
 import json
+import string
+import unicodedata
 import cv2
 import numpy as np
+
+TEACHING_SYMBOLS = string.ascii_uppercase + string.digits + string.punctuation + '…‘’“”–'
+
+
+def valid_symbol(symbol):
+    return (isinstance(symbol, str) and len(symbol) == 1 and
+            (symbol in string.ascii_uppercase + string.digits or
+             unicodedata.category(symbol).startswith(('P', 'S'))))
 
 
 def read_image(path):
@@ -62,12 +72,14 @@ class Profile:
         self.samples = {}
 
     def add(self, letter, mask):
-        if len(letter) != 1 or letter not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
-            raise ValueError('Choose a letter A–Z.')
-        self.samples.setdefault(letter, []).append(tight(mask).copy())
+        if not valid_symbol(letter):
+            raise ValueError('Choose one uppercase letter A–Z, digit 0–9, or punctuation/symbol character. Spaces and multi-character labels are not supported.')
+        sample=tight(mask).copy()
+        self.samples.setdefault(letter, []).append(sample)
 
     def save(self, path):
-        data = {'version': 1, 'name': self.name, 'samples': {k: [(m > 0).astype(int).tolist() for m in v] for k, v in self.samples.items()}}
+        version = 2 if any(k not in string.ascii_uppercase for k in self.samples) else 1
+        data = {'version': version, 'name': self.name, 'samples': {k: [(m > 0).astype(int).tolist() for m in v] for k, v in self.samples.items()}}
         path = Path(path)
         temp = path.with_name(path.name + '.tmp')
         temp.write_text(json.dumps(data), encoding='utf-8')
@@ -78,7 +90,7 @@ class Profile:
         if Path(path).stat().st_size > 20_000_000:
             raise ValueError('Profile is too large.')
         data = json.loads(Path(path).read_text(encoding='utf-8'))
-        if data.get('version') != 1:
+        if data.get('version') not in (1, 2):
             raise ValueError('Unsupported profile version.')
         obj = cls(str(data.get('name', 'Alphabet')))
         for letter, samples in data['samples'].items():
@@ -96,7 +108,7 @@ class Matcher:
     def __init__(self, profile):
         self.templates = [(k, normalize(m)>0, m.shape[1]/m.shape[0]) for k, values in profile.samples.items() for m in values]
         if not self.templates:
-            raise ValueError('Teach at least one letter or load a profile first.')
+            raise ValueError('Teach at least one character or load a profile first.')
 
     def match(self, mask):
         raw = tight(mask)
@@ -120,6 +132,37 @@ def runs(values):
     return list(zip(np.where(edges==1)[0], np.where(edges==-1)[0]))
 
 
+def join_punctuation_parts(mask, bands, matcher, axis):
+    """Reunite disconnected dots/strokes only for a strong taught symbol match.
+
+    This handles standalone : ; ! ? = and quotation marks without increasing
+    the general gap settings, which could otherwise merge whole text lines.
+    """
+    if not any(not k.isalnum() for k,_,_ in matcher.templates):
+        return bands
+    result=[]
+    index=0
+    while index<len(bands):
+        start,end=bands[index]
+        if index+1<len(bands):
+            other_start,other_end=bands[index+1]
+            first=mask[start:end] if axis==0 else mask[:,start:end]
+            second=mask[other_start:other_end] if axis==0 else mask[:,other_start:other_end]
+            crop=mask[start:other_end] if axis==0 else mask[:,start:other_end]
+            # Separate text lines have independent horizontal spans. Only try
+            # a vertical merge when both bands contain a single aligned mark.
+            aligned=axis==1 or (len(runs(np.any(first,axis=0)))==1 and len(runs(np.any(second,axis=0)))==1)
+            close=other_start-end<=max(first.shape+second.shape)*.75
+            if aligned and close:
+                ranked=matcher.match(crop)
+                symbol,score=ranked[0]
+                margin=score-ranked[1][1] if len(ranked)>1 else score
+                if not symbol.isalnum() and score>=.94 and margin>=.04:
+                    result.append((start,other_end));index+=2;continue
+        result.append((start,end));index+=1
+    return result
+
+
 @dataclass
 class Glyph:
     box: tuple
@@ -128,6 +171,7 @@ class Glyph:
     alternatives: list
     line: int
     space: bool = False
+    accepted: bool = True
 
 
 def split_touching(crop, matcher, expected):
@@ -160,7 +204,7 @@ def recognize(mask, profile, minimum=.58, split=True, gap_factor=.65, line_gap=2
     occupied = (np.count_nonzero(mask,axis=1)>0).astype(np.uint8)[:,None]
     if line_gap:
         occupied = cv2.morphologyEx(occupied, cv2.MORPH_CLOSE, np.ones((line_gap+1,1),np.uint8))
-    line_runs = runs(occupied.ravel())
+    line_runs = join_punctuation_parts(mask,runs(occupied.ravel()),matcher,0)
     glyphs = []
     texts = []
     for line_id,(y0,y1) in enumerate(line_runs):
@@ -168,10 +212,13 @@ def recognize(mask, profile, minimum=.58, split=True, gap_factor=.65, line_gap=2
         columns = (np.count_nonzero(strip,axis=0)>0).astype(np.uint8)[None,:]
         if char_gap:
             columns = cv2.morphologyEx(columns,cv2.MORPH_CLOSE,np.ones((1,char_gap+1),np.uint8))
-        chunks = runs(columns.ravel())
+        chunks = join_punctuation_parts(strip,runs(columns.ravel()),matcher,1)
         if not chunks:
             continue
-        expected = float(np.median([r*(y1-y0) for _,_,r in matcher.templates]))
+        # Punctuation can be much shorter or wider than letters. Use letters
+        # and digits to estimate normal spacing whenever they are available.
+        ratios = [r for k,_,r in matcher.templates if k.isalnum()] or [r for _,_,r in matcher.templates]
+        expected = float(np.median(ratios))*(y1-y0)
         boxes = []
         for x0,x1 in chunks:
             parts = split_touching(strip[:,x0:x1],matcher,expected) if split else [(0,x1-x0)]
@@ -191,7 +238,7 @@ def recognize(mask, profile, minimum=.58, split=True, gap_factor=.65, line_gap=2
             decoded = letter if accepted else '?'
             space = prev is not None and x0-prev > expected*gap_factor
             text += (' ' if space else '') + decoded
-            glyphs.append(Glyph((int(x0+xs.min()),int(y0+ys.min()),int(xs.max()-xs.min()+1),int(ys.max()-ys.min()+1)),decoded,score,ranked,line_id,space))
+            glyphs.append(Glyph((int(x0+xs.min()),int(y0+ys.min()),int(xs.max()-xs.min()+1),int(ys.max()-ys.min()+1)),decoded,score,ranked,line_id,space,accepted))
             prev=x1
         texts.append(text)
     return '\n'.join(texts), glyphs
@@ -201,9 +248,10 @@ def annotate(image, glyphs):
     out = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if image.ndim==2 else image.copy()
     for g in glyphs:
         x,y,w,h=g.box
-        color=(30,180,40) if g.letter!='?' else (0,130,255)
+        color=(30,180,40) if g.accepted else (0,130,255)
         cv2.rectangle(out,(x,y),(x+w,y+h),color,1)
-        cv2.putText(out,g.letter,(x,max(10,y-3)),cv2.FONT_HERSHEY_SIMPLEX,.4,color,1,cv2.LINE_AA)
+        label=g.letter if g.letter.isascii() else f'U+{ord(g.letter):04X}'
+        cv2.putText(out,label,(x,max(10,y-3)),cv2.FONT_HERSHEY_SIMPLEX,.4,color,1,cv2.LINE_AA)
     return out
 
 
@@ -218,6 +266,8 @@ def auto_recognize(image, profile, minimum=.58, detect_regions=True):
         if detect_regions:return recognize_regions(image,profile,minimum)
         raise ValueError('Select a text region smaller than 2 megapixels for a single reading pass.')
     Matcher(profile)  # Give a useful error for empty alphabets before searching.
+    has_punctuation = any(not k.isalnum() for k in profile.samples)
+    min_area = 1 if any(not k.isalnum() and np.count_nonzero(m)<2 for k,values in profile.samples.items() for m in values) else 2
     histogram=np.bincount(gray.ravel(),minlength=256)
     palette=np.argsort(histogram)[::-1][:16]
     best=None
@@ -229,7 +279,7 @@ def auto_recognize(image, profile, minimum=.58, detect_regions=True):
         keep=np.zeros(n,np.uint8)
         for i in range(1,n):
             x,y,w,h,area=stats[i]
-            if area>=2 and h<=max(40,gray.shape[0]*.35) and w<=max(50,gray.shape[1]*.35):keep[i]=255
+            if area>=min_area and h<=max(40,gray.shape[0]*.35) and w<=max(50,gray.shape[1]*.35):keep[i]=255
         mask=keep[labels]
         _,glyphs=recognize(mask,profile,minimum=minimum,split=True,line_gap=2,char_gap=0)
         selected=[]
@@ -239,25 +289,25 @@ def auto_recognize(image, profile, minimum=.58, detect_regions=True):
             # of the letters in this row. Keep short wide glyphs such as O.
             median_h=float(np.median([g.box[3] for g in row]))
             median_w=float(np.median([g.box[2] for g in row]))
-            row=[g for g in row if g.box[2]>=max(2,median_w*.3) or median_h*.5<=g.box[3]<=median_h*1.6]
+            row=[g for g in row if g.box[2]>=max(2,median_w*.3) or median_h*.5<=g.box[3]<=median_h*1.6 or (has_punctuation and g.accepted and not g.letter.isalnum())]
             if not row:continue
-            accepted=[g for g in row if g.letter!='?']
+            accepted=[g for g in row if g.accepted]
             if len(set(g.letter for g in accepted))>=2 and len(row)>=3 and len(accepted)/len(row)>=.7 and np.mean([g.confidence for g in row])>=.70:
                 selected.extend(row)
         if not selected:return
-        quality=sum(g.confidence if g.letter!='?' else -.5 for g in selected)
+        quality=sum(g.confidence if g.accepted else -.5 for g in selected)
         if best is None or quality>best[0]:best=(quality,mask,selected,settings)
     for value in palette:
         if histogram[value]<6:continue
         low=high=int(value)
-        mask=preprocess(image,polarity='range',range_low=low,range_high=high,min_area=2)
-        consider(mask,dict(polarity='range',range_low=low,range_high=high,min_area=2))
+        mask=preprocess(image,polarity='range',range_low=low,range_high=high,min_area=min_area)
+        consider(mask,dict(polarity='range',range_low=low,range_high=high,min_area=min_area))
     # Remove smooth lighting gradients before thresholding. Several windows
     # cover both tiny display glyphs and larger original screenshot strokes.
     for polarity in ('local light','local dark'):
         for window in (3,7,15):
             for threshold in (10,20,30):
-                settings=dict(polarity=polarity,local_window=window,threshold=threshold,min_area=2)
+                settings=dict(polarity=polarity,local_window=window,threshold=threshold,min_area=min_area)
                 consider(preprocess(image,**settings),settings)
     if best is None:
         if detect_regions:return recognize_regions(image,profile,minimum)
@@ -283,7 +333,7 @@ def detect_text_regions(image,profile):
         for x,y,w,h,area in stats[1:]:
             if not (5<=h<=80 and 4<=w<=100 and area>=10 and area/(h*w)<.85 and .25<w/h<4):continue
             ranked=matcher.match(mask[y:y+h,x:x+w])
-            if ranked[0][1]<.65 or ranked[0][1]-ranked[1][1]<.04:continue
+            if ranked[0][1]<.65 or (len(ranked)>1 and ranked[0][1]-ranked[1][1]<.04):continue
             item=(int(x),int(y),int(w),int(h),ranked[0][0],ranked[0][1])
             duplicate=next((i for i,a in enumerate(seeds) if abs(a[0]+a[2]/2-x-w/2)<max(2,w*.25) and abs(a[1]+a[3]/2-y-h/2)<max(2,h*.25)),None)
             if duplicate is None:seeds.append(item)

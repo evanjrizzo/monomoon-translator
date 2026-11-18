@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to verify
+        required: true
+        default: v1.1.0
+        type: string
 
 permissions:
   contents: read
@@ -40,13 +46,14 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
       - name: Download and verify the release
         shell: pwsh
         run: |
           $downloads = Join-Path $env:RUNNER_TEMP 'downloads'
           New-Item -ItemType Directory -Path $downloads | Out-Null
-          gh release download v1.0.0 --repo $env:GITHUB_REPOSITORY --dir $downloads --pattern Monomoon-Translator-Windows-x64.zip --pattern Monomoon-Translator-SHA256SUMS.txt
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --dir $downloads --pattern Monomoon-Translator-Windows-x64.zip --pattern Monomoon-Translator-SHA256SUMS.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release download failed' }
           $zip = Join-Path $downloads 'Monomoon-Translator-Windows-x64.zip'
           $sums = Get-Content (Join-Path $downloads 'Monomoon-Translator-SHA256SUMS.txt')
@@ -75,6 +82,7 @@ jobs:
           $result = Get-Content $report -Raw | ConvertFrom-Json
           Get-Content $report
           if (-not $result.success -or $result.platform -ne 'win32') { throw 'Invalid portable runtime result' }
+          if ($env:RELEASE_TAG -eq 'v1.1.0' -and (-not $result.symbols -or $result.profile_format -ne 2)) { throw 'Missing number/punctuation checks' }
       - name: Preserve portable check results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

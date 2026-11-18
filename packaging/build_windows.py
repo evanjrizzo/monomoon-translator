@@ -33,9 +33,9 @@ def main():
     for pattern in ('msvcp*.dll','vcruntime*.dll','concrt*.dll'):
         for dll in (packages/'PySide6').glob(pattern):shutil.copy2(dll,runtime/dll.name)
     (runtime/'python312._pth').write_text('python312.zip\n.\n..\nLib/site-packages\nimport site\n',encoding='utf-8')
-    for name in ('app.py','ocr.py','paths.py','portable_start.py','portable_check.py','README.md','requirements-portable.txt'):
+    for name in ('app.py','ocr.py','paths.py','portable_start.py','portable_check.py','README.md','VERSION','LICENSE','CHANGELOG.md','VALIDATION.md','requirements-portable.txt'):
         shutil.copy2(SOURCE/name,output/name)
-    for name in ('assets','examples','packaging','tests'):
+    for name in ('assets','examples','packaging','tests','docs'):
         shutil.copytree(SOURCE/name,output/name,dirs_exist_ok=True,ignore=shutil.ignore_patterns('__pycache__','.pytest_cache'))
     if (SOURCE/'licenses').exists():shutil.copytree(SOURCE/'licenses',output/'licenses',dirs_exist_ok=True)
     shutil.copy2(args.launcher,output/'Monomoon Translator.exe')
