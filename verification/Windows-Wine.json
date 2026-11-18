@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "platform": "win32",
+  "clipboard": true,
+  "profiles": true,
+  "advanced_panel": true,
+  "ocr": {
+    "relics-sign-from-app.png": {
+      "text": "RELICSARE\nNOTENOUGH",
+      "glyphs": 18
+    },
+    "hypnosis-board-from-app.png": {
+      "text": "HYPNOSISTECHNIQUES",
+      "glyphs": 18
+    },
+    "moon-board.jpg": {
+      "text": "RESTING\nBOUNDBYFRAME\nOFLINKEDSOUL\nLIT INFUSED CRIMS??\nMAYLINGERINPASTFRAME\nCANCROSSINTOACTIVEFRAME",
+      "glyphs": 91
+    }
+  }
+}

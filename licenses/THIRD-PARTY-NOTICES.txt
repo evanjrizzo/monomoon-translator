@@ -1,0 +1,39 @@
+Monomoon Translator redistributes unmodified third-party runtime components.
+Their original notices and metadata are retained in runtime/ on Windows and
+_internal/ on Linux. The application source and native launcher source are
+included so that the application can be modified and rebuilt. Qt/PySide shared
+libraries are dynamically loaded and can be replaced by compatible versions.
+
+CPython 3.12.10 (Windows) / 3.12.3 (Linux): Python Software Foundation License.
+Windows runtime/LICENSE.txt contains the PSF license and additional notices.
+Corresponding source:
+https://www.python.org/ftp/python/3.12.10/Python-3.12.10.tar.xz
+https://www.python.org/ftp/python/3.12.3/Python-3.12.3.tar.xz
+
+PySide6 Essentials / Shiboken6 / Qt 6.8.3:
+Distributed under the applicable open-source LGPL v3 terms; LGPL-3.0.txt and
+GPL-3.0.txt are supplied here. Original module-specific notices also apply.
+Corresponding sources, including build/configuration instructions:
+https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-src/pyside-setup-everywhere-src-6.8.3.tar.xz
+https://download.qt.io/archive/qt/6.8/6.8.3/single/qt-everywhere-src-6.8.3.tar.xz
+The Windows Qt wheels also provide application-local Microsoft CRT libraries;
+these are retained without modification as distributed by Qt for Python.
+
+NumPy 1.26.4: BSD-3-Clause; includes OpenBLAS and its notices.
+https://github.com/numpy/numpy/releases/tag/v1.26.4
+https://github.com/OpenMathLib/OpenBLAS
+
+OpenCV Python headless 4.11.0.86: package and bundled dependency licenses are
+in cv2/LICENSE.txt and cv2/LICENSE-3RD-PARTY.txt.
+https://github.com/opencv/opencv-python/releases/tag/86
+https://github.com/opencv/opencv/tree/4.11.0
+
+PyInstaller 6.22.3 (Linux bootloader): GPL v2 with an exception permitting
+redistribution of bundled non-GPL applications. Original notices are included.
+https://github.com/pyinstaller/pyinstaller/releases/tag/v6.22.3
+
+libxcb-cursor (Linux bundle): MIT/X11 notices in libxcb-cursor-copyright.txt.
+https://gitlab.freedesktop.org/xorg/lib/libxcb-cursor
+
+All screenshots are user-provided game images and remain the property of their
+respective rights holders. No game artwork ownership is claimed here.
