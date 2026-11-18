@@ -75,7 +75,7 @@ On Windows, **Check portable runtime.cmd** checks the bundled GUI, clipboard pas
 
 On Linux, run the executable with `--self-test`. Results are written to `data/logs/portable-check.json`.
 
-The Windows application was tested as Windows binaries under Wine 9 on Linux, including the native `.exe` launcher and a path with spaces and accented characters. A physical Windows 10/11 machine was not available for a native OS test. See `VALIDATION.md` for the precise checks and dependency versions.
+The released Windows ZIP passed its portable checks on a native Windows Server 2025 GitHub runner, using its own embedded Python runtime and `.exe` launcher in a path with spaces and accented characters. It also passed under Wine 9 on Linux. The Linux archive passed under XCB after extraction. See `VALIDATION.md` for the precise checks and dependency versions.
 
 [GitHub Actions](https://github.com/evanjrizzo/monomoon-translator/actions) runs the source tests on Windows and Linux. The manually started workflow also downloads the v1.0.0 Windows release, verifies its checksum, and tests the actual portable launcher and bundled runtime in a path with spaces and accented characters.
 
